@@ -1,4 +1,9 @@
 extern crate sdl2;
+extern crate wavefront_obj;
+
+use std::io::prelude::*;
+use std::fs::File;
+use std::path::PathBuf;
 
 use sdl2::event::Event;
 use sdl2::pixels;
@@ -7,8 +12,8 @@ use sdl2::render::WindowCanvas;
 
 use sdl2::gfx::primitives::DrawRenderer;
 
-const SCREEN_WIDTH: u32 = 500;
-const SCREEN_HEIGHT: u32 = 500;
+const SCREEN_WIDTH: u32 = 600;
+const SCREEN_HEIGHT: u32 = 600;
 
 fn put_pixel(canvas: &WindowCanvas, x: i16, y: i16, color: u32) {
     canvas.pixel(x, SCREEN_HEIGHT as i16 - y, color).unwrap();
@@ -54,13 +59,43 @@ fn main() {
     let mut canvas = window.into_canvas().build().unwrap();
     let mut events = sdl_context.event_pump().unwrap();
 
+    // Set OBJ file path
+    let mut obj_file = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    obj_file.push("src/african_head.obj");
+
+    // Load OBJ
+    let mut file = File::open(obj_file).expect("Unable to open the file");
+    let mut obj_string = String::new();
+    file.read_to_string(&mut obj_string).expect("Unable to read the file");
+
+    let obj = wavefront_obj::obj::parse(obj_string).unwrap();
+    let object = &obj.objects[0];
+    let shapes = &object.geometry[0].shapes;
+
     'main: loop {
         canvas.set_draw_color(pixels::Color::RGB(0, 0, 0));
         canvas.clear();
 
-        line(&canvas, 13, 20, 80, 40, 0xFFFFFFFFu32);
-        line(&canvas, 20, 13, 40, 80, 0xFF0000FFu32);
-        line(&canvas, 80, 40, 13, 20, 0xFF0000FFu32);
+        for shape in shapes {
+            match shape.primitive {
+                wavefront_obj::obj::Primitive::Triangle(vtx_1, vtx_2, vtx_3) => {
+                    let triangle = [vtx_1.0, vtx_2.0, vtx_3.0];
+
+                    for i in 0..2 {
+                        let a = object.vertices[triangle[i]];
+                        let b = object.vertices[triangle[(i + 1) % 3]];
+
+                        let x0 = (a.x + 1.0) * SCREEN_WIDTH as f64 / 2.0;
+                        let y0 = (a.y + 1.0) * SCREEN_HEIGHT as f64 / 2.0;
+                        let x1 = (b.x + 1.0) * SCREEN_WIDTH as f64 / 2.0;
+                        let y1 = (b.y + 1.0) * SCREEN_HEIGHT as f64 / 2.0;
+
+                        line(&canvas, x0 as i16, y0 as i16, x1 as i16, y1 as i16, 0xFFFFFFFFu32); 
+                    }
+                },
+                _ => {}
+            }
+        }
 
         canvas.present();
 
