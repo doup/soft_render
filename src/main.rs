@@ -14,12 +14,31 @@ fn put_pixel(canvas: &WindowCanvas, x: i16, y: i16, color: u32) {
     canvas.pixel(x, SCREEN_HEIGHT as i16 - y, color).unwrap();
 }
 
-fn line(canvas: &WindowCanvas, x0: i16, y0: i16, x1: i16, y1: i16, color: u32) {
+fn line(canvas: &WindowCanvas, mut x0: i16, mut y0: i16, mut x1: i16, mut y1: i16, color: u32) {
+    let mut steep = false;
+
+    // If is longer vertically than horizontally swap x-y components
+    if (x0 - x1).abs() < (y0 - y1).abs() {
+        std::mem::swap(&mut x0, &mut y0);
+        std::mem::swap(&mut x1, &mut y1);
+        steep = true;
+    }
+
+    // Swap points if necessary
+    if x0 > x1 {
+        std::mem::swap(&mut x0, &mut x1);
+        std::mem::swap(&mut y0, &mut y1);
+    }
+
     for x in x0..x1 {
         let t = (x - x0) as f32 / (x1 - x0) as f32;
         let y = y0 as f32 * (1.0 - t) + y1 as f32 * t;
 
-        put_pixel(canvas, x as i16, y as i16, color);
+        if steep {
+            put_pixel(canvas, y as i16, x as i16, color);
+        } else {
+            put_pixel(canvas, x as i16, y as i16, color);
+        }
     }
 }
 
