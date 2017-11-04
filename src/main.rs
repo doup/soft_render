@@ -11,16 +11,15 @@ const SCREEN_WIDTH: u32 = 500;
 const SCREEN_HEIGHT: u32 = 500;
 
 fn put_pixel(canvas: &WindowCanvas, x: i16, y: i16, color: u32) {
-    canvas.pixel(x, y, color).unwrap();
+    canvas.pixel(x, SCREEN_HEIGHT as i16 - y, color).unwrap();
 }
 
-fn line(canvas: &WindowCanvas, x0: i16, y0: i16, x1: i16, y1: i16) {
-    for i in 0..200 {
-        let step = i as f32 / 200.0;
-        let x = x0 as f32 * (1.0 - step) + x1 as f32 * step;
-        let y = y0 as f32 * (1.0 - step) + y1 as f32 * step;
+fn line(canvas: &WindowCanvas, x0: i16, y0: i16, x1: i16, y1: i16, color: u32) {
+    for x in x0..x1 {
+        let t = (x - x0) as f32 / (x1 - x0) as f32;
+        let y = y0 as f32 * (1.0 - t) + y1 as f32 * t;
 
-        put_pixel(canvas, x as i16, y as i16, 0xFFFFFFFFu32);
+        put_pixel(canvas, x as i16, y as i16, color);
     }
 }
 
@@ -39,7 +38,11 @@ fn main() {
     'main: loop {
         canvas.set_draw_color(pixels::Color::RGB(0, 0, 0));
         canvas.clear();
-        line(&canvas, 20, 20, 200, 60);
+
+        line(&canvas, 13, 20, 80, 40, 0xFFFFFFFFu32);
+        line(&canvas, 20, 13, 40, 80, 0xFF0000FFu32);
+        line(&canvas, 80, 40, 13, 20, 0xFF0000FFu32);
+
         canvas.present();
 
         for event in events.poll_iter() {
