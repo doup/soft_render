@@ -1,5 +1,6 @@
 extern crate sdl2;
 extern crate wavefront_obj;
+extern crate rand;
 
 use std::io::prelude::*;
 use std::fs::File;
@@ -12,14 +13,49 @@ use sdl2::render::WindowCanvas;
 
 use sdl2::gfx::primitives::DrawRenderer;
 
+use wavefront_obj::obj::Vertex;
+
 const SCREEN_WIDTH: u32 = 600;
 const SCREEN_HEIGHT: u32 = 600;
 
-fn put_pixel(canvas: &WindowCanvas, x: i16, y: i16, color: u32) {
+#[derive(Debug, Clone)]
+struct Vector2<T> {
+    x: T,
+    y: T,
+}
+
+impl std::ops::Add for Vector2<i16> {
+    type Output = Vector2<i16>;
+
+    fn add(self, other: Vector2<i16>) -> Vector2<i16> {
+        Vector2 { x: self.x + other.x, y: self.y + other.y }
+    }
+}
+
+impl std::ops::Sub for Vector2<i16> {
+    type Output = Vector2<i16>;
+
+    fn sub(self, other: Vector2<i16>) -> Vector2<i16> {
+        Vector2 { x: self.x - other.x, y: self.y - other.y }
+    }
+}
+
+impl std::ops::Mul<f64> for Vector2<i16> {
+    type Output = Vector2<i16>;
+
+    fn mul(self, other: f64) -> Vector2<i16> {
+        Vector2 {
+            x: (self.x as f64 * other) as i16,
+            y: (self.y as f64 * other) as i16,
+        }
+    }
+}
+
+fn put_pixel(canvas: &WindowCanvas, x: i16, y: i16, color: pixels::Color) {
     canvas.pixel(x, SCREEN_HEIGHT as i16 - y, color).unwrap();
 }
 
-fn line(canvas: &WindowCanvas, mut x0: i16, mut y0: i16, mut x1: i16, mut y1: i16, color: u32) {
+fn line(canvas: &WindowCanvas, mut x0: i16, mut y0: i16, mut x1: i16, mut y1: i16, color: pixels::Color) {
     let mut steep = false;
 
     // If is longer vertically than horizontally swap x-y components
@@ -43,6 +79,54 @@ fn line(canvas: &WindowCanvas, mut x0: i16, mut y0: i16, mut x1: i16, mut y1: i1
             put_pixel(canvas, y as i16, x as i16, color);
         } else {
             put_pixel(canvas, x as i16, y as i16, color);
+        }
+    }
+}
+
+fn vec_swap(vec: &mut Vec<Vector2<i16>>, a: usize, b: usize) {
+    let tmp = vec[a].clone();
+    vec[a] = vec[b].clone();
+    vec[b] = tmp;
+}
+
+fn triangle(canvas: &WindowCanvas, mut tri: &mut Vec<Vector2<i16>>, color: pixels::Color) {
+     // sort the vertices, t0, t1, t2 lower−to−upper (bubblesort yay!) 
+    if tri[0].y > tri[1].y { vec_swap(&mut tri, 0, 1); }
+    if tri[0].y > tri[2].y { vec_swap(&mut tri, 0, 2); }
+    if tri[1].y > tri[2].y { vec_swap(&mut tri, 1, 2); }
+
+    let total_height = tri[2].y - tri[0].y;
+    let first_half_height = tri[1].y - tri[0].y;
+    let tri_has_flat_bottom = tri[1].y == tri[0].y;
+
+    for i in 0..total_height {
+        let is_second_half = i > first_half_height || tri_has_flat_bottom;
+        let segment_height = if is_second_half {
+            tri[2].y - tri[1].y
+        } else {
+            first_half_height
+        };
+
+        let alpha = i as f64 / total_height as f64;
+        let beta = if is_second_half {
+            (i as f64 - first_half_height as f64) / segment_height as f64
+        } else {
+            i as f64 / segment_height as f64
+        };
+
+        let mut a: Vector2<i16> = tri[0].clone() + (tri[2].clone() - tri[0].clone()) * alpha;
+        let mut b: Vector2<i16> = if is_second_half {
+            tri[1].clone() + (tri[2].clone() - tri[1].clone()) * beta
+        } else {
+            tri[0].clone() + (tri[1].clone() - tri[0].clone()) * beta
+        };
+
+        if a.x > b.x {
+            std::mem::swap(&mut a, &mut b);
+        }
+
+        for x in a.x..b.x {
+            put_pixel(&canvas, x, tri[0].y + i, color);
         }
     }
 }
@@ -72,6 +156,16 @@ fn main() {
     let object = &obj.objects[0];
     let shapes = &object.geometry[0].shapes;
 
+    // let mut t0 = vec![Vector2 {x: 10,  y: 70},  Vector2 {x: 50,  y: 160}, Vector2 {x: 70,  y: 80}]; 
+    // let mut t1 = vec![Vector2 {x: 180, y: 50},  Vector2 {x: 150, y: 1},   Vector2 {x: 70,  y: 180}]; 
+    // let mut t2 = vec![Vector2 {x: 180, y: 150}, Vector2 {x: 120, y: 160}, Vector2 {x: 130, y: 180}]; 
+
+    // triangle(&canvas, &mut t0, pixels::Color::RGB(255, 0, 0)); 
+    // triangle(&canvas, &mut t1, pixels::Color::RGB(255, 255, 255)); 
+    // triangle(&canvas, &mut t2, pixels::Color::RGB(0, 255, 0)); 
+
+    // canvas.present();
+
     'main: loop {
         canvas.set_draw_color(pixels::Color::RGB(0, 0, 0));
         canvas.clear();
@@ -95,17 +189,24 @@ fn main() {
                     //     continue;
                     // }
 
+                    let mut screen_tri = vec![];
+
                     for i in 0..3 {
-                        let a = vertices[i];
-                        let b = vertices[(i + 1) % 3];
-
-                        let x0 = (a.x + 1.0) * SCREEN_WIDTH as f64 / 2.0;
-                        let y0 = (a.y + 1.0) * SCREEN_HEIGHT as f64 / 2.0;
-                        let x1 = (b.x + 1.0) * SCREEN_WIDTH as f64 / 2.0;
-                        let y1 = (b.y + 1.0) * SCREEN_HEIGHT as f64 / 2.0;
-
-                        line(&canvas, x0 as i16, y0 as i16, x1 as i16, y1 as i16, 0xFFFFFFFFu32);
+                        screen_tri.push(Vector2 {
+                            x: ((vertices[i].x + 1.0) * SCREEN_WIDTH as f64 / 2.0) as i16,
+                            y: ((vertices[i].y + 1.0) * SCREEN_HEIGHT as f64 / 2.0) as i16,
+                        });
                     }
+
+                    triangle(
+                        &canvas,
+                        &mut screen_tri,
+                        pixels::Color::RGB(
+                            rand::random::<u8>(),
+                            rand::random::<u8>(),
+                            rand::random::<u8>()
+                        )
+                    );
                 },
                 _ => {}
             }
