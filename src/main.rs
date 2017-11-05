@@ -79,18 +79,32 @@ fn main() {
         for shape in shapes {
             match shape.primitive {
                 wavefront_obj::obj::Primitive::Triangle(vtx_1, vtx_2, vtx_3) => {
-                    let triangle = [vtx_1.0, vtx_2.0, vtx_3.0];
+                    let vertices = [
+                        object.vertices[vtx_1.0],
+                        object.vertices[vtx_2.0],
+                        object.vertices[vtx_3.0],
+                    ];
+                    let bbox = [
+                        vertices.iter().map(|v| v.x).fold(std::f64::INFINITY, |a, b| a.min(b)), // Left
+                        vertices.iter().map(|v| v.y).fold(std::f64::INFINITY, |a, b| a.min(b)), // Bottom
+                        vertices.iter().map(|v| v.x).fold(std::f64::NEG_INFINITY, |a, b| a.max(b)), // Right
+                        vertices.iter().map(|v| v.y).fold(std::f64::NEG_INFINITY, |a, b| a.max(b)), // Top
+                    ];
 
-                    for i in 0..2 {
-                        let a = object.vertices[triangle[i]];
-                        let b = object.vertices[triangle[(i + 1) % 3]];
+                    // if bbox[2] > -0.5 || bbox[3] > -0.5 {
+                    //     continue;
+                    // }
+
+                    for i in 0..3 {
+                        let a = vertices[i];
+                        let b = vertices[(i + 1) % 3];
 
                         let x0 = (a.x + 1.0) * SCREEN_WIDTH as f64 / 2.0;
                         let y0 = (a.y + 1.0) * SCREEN_HEIGHT as f64 / 2.0;
                         let x1 = (b.x + 1.0) * SCREEN_WIDTH as f64 / 2.0;
                         let y1 = (b.y + 1.0) * SCREEN_HEIGHT as f64 / 2.0;
 
-                        line(&canvas, x0 as i16, y0 as i16, x1 as i16, y1 as i16, 0xFFFFFFFFu32); 
+                        line(&canvas, x0 as i16, y0 as i16, x1 as i16, y1 as i16, 0xFFFFFFFFu32);
                     }
                 },
                 _ => {}
