@@ -61,7 +61,7 @@ fn main() {
 
     // Set OBJ file path
     let mut obj_file = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    obj_file.push("src/african_head.obj");
+    obj_file.push("assets/african_head.obj");
 
     // Load OBJ
     let mut file = File::open(obj_file).expect("Unable to open the file");
