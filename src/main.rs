@@ -2,6 +2,12 @@ extern crate sdl2;
 extern crate wavefront_obj;
 extern crate rand;
 
+mod vec2f;
+mod vec3f;
+
+use vec2f::Vec2f;
+use vec3f::Vec3f;
+
 use std::io::prelude::*;
 use std::fs::File;
 use std::path::PathBuf;
@@ -18,10 +24,19 @@ use wavefront_obj::obj::Vertex;
 const SCREEN_WIDTH: u32 = 600;
 const SCREEN_HEIGHT: u32 = 600;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 struct Vector2<T> {
     x: T,
     y: T,
+}
+
+impl Vector2<i16> {
+    fn new() -> Vector2<i16> {
+        Vector2 {
+            x: 0,
+            y: 0,
+        }
+    }
 }
 
 impl std::ops::Add for Vector2<i16> {
@@ -83,50 +98,42 @@ fn line(canvas: &WindowCanvas, mut x0: i16, mut y0: i16, mut x1: i16, mut y1: i1
     }
 }
 
-fn vec_swap(vec: &mut Vec<Vector2<i16>>, a: usize, b: usize) {
-    let tmp = vec[a].clone();
-    vec[a] = vec[b].clone();
-    vec[b] = tmp;
+fn barycentric(tri: &[Vec2f; 3], p: Vec2f) -> Vec3f {
+    let u = Vec3f::new(tri[2].x - tri[0].x, tri[1].x - tri[0].x, tri[0].x - p.x).cross(&Vec3f::new(tri[2].y - tri[0].y, tri[1].y - tri[0].y, tri[0].y - p.y));
+
+    // triangle is degenerate, in this case return something with negative coordinates 
+    if u.z.abs() < 1.0 {
+        return Vec3f::new(-1.0, 1.0, 1.0)
+    }
+
+    Vec3f::new(
+        1.0 - (u.x + u.y) / u.z,
+        u.y / u.z,
+        u.x / u.z
+    )
 }
 
-fn triangle(canvas: &WindowCanvas, mut tri: &mut Vec<Vector2<i16>>, color: pixels::Color) {
-     // sort the vertices, t0, t1, t2 lower−to−upper (bubblesort yay!) 
-    if tri[0].y > tri[1].y { vec_swap(&mut tri, 0, 1); }
-    if tri[0].y > tri[2].y { vec_swap(&mut tri, 0, 2); }
-    if tri[1].y > tri[2].y { vec_swap(&mut tri, 1, 2); }
+fn triangle(canvas: &WindowCanvas, tri: &[Vec2f; 3], color: pixels::Color) {
+    let bbox_min = Vec2f::new(
+        tri.iter().map(|v| v.x).fold(std::f64::INFINITY, |a, b| a.min(b).max(0.0)), // Left
+        tri.iter().map(|v| v.y).fold(std::f64::INFINITY, |a, b| a.min(b).max(0.0))  // Bottom
+    );
 
-    let total_height = tri[2].y - tri[0].y;
-    let first_half_height = tri[1].y - tri[0].y;
-    let tri_has_flat_bottom = tri[1].y == tri[0].y;
+    let bbox_max = Vec2f::new(
+        tri.iter().map(|v| v.x).fold(std::f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_WIDTH - 1) as f64)),  // Right
+        tri.iter().map(|v| v.y).fold(std::f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_HEIGHT - 1) as f64))  // Top
+    );
 
-    for i in 0..total_height {
-        let is_second_half = i > first_half_height || tri_has_flat_bottom;
-        let segment_height = if is_second_half {
-            tri[2].y - tri[1].y
-        } else {
-            first_half_height
-        };
+    for x in (bbox_min.x as i16)..(bbox_max.x.ceil() as i16) {
+        for y in (bbox_min.y as i16)..(bbox_max.y.ceil() as i16) {
+            let p = Vec2f::new(x as f64 + 0.5, y as f64 + 0.5);
+            let bc_screen = barycentric(tri, p);
 
-        let alpha = i as f64 / total_height as f64;
-        let beta = if is_second_half {
-            (i as f64 - first_half_height as f64) / segment_height as f64
-        } else {
-            i as f64 / segment_height as f64
-        };
+            if bc_screen.x < 0.0 || bc_screen.y < 0.0 || bc_screen.z < 0.0 {
+                continue;
+            }
 
-        let mut a: Vector2<i16> = tri[0].clone() + (tri[2].clone() - tri[0].clone()) * alpha;
-        let mut b: Vector2<i16> = if is_second_half {
-            tri[1].clone() + (tri[2].clone() - tri[1].clone()) * beta
-        } else {
-            tri[0].clone() + (tri[1].clone() - tri[0].clone()) * beta
-        };
-
-        if a.x > b.x {
-            std::mem::swap(&mut a, &mut b);
-        }
-
-        for x in a.x..b.x {
-            put_pixel(&canvas, x, tri[0].y + i, color);
+            put_pixel(canvas, p.x.floor() as i16, p.y.floor() as i16, color);
         }
     }
 }
@@ -156,6 +163,33 @@ fn main() {
     let object = &obj.objects[0];
     let shapes = &object.geometry[0].shapes;
 
+    let mut model = vec![];
+
+    for shape in shapes {
+        match shape.primitive {
+            wavefront_obj::obj::Primitive::Triangle(vtx_1, vtx_2, vtx_3) => {
+                model.push([
+                    Vec3f::new(
+                        object.vertices[vtx_1.0].x,
+                        object.vertices[vtx_1.0].y,
+                        object.vertices[vtx_1.0].z
+                    ),
+                    Vec3f::new(
+                        object.vertices[vtx_2.0].x,
+                        object.vertices[vtx_2.0].y,
+                        object.vertices[vtx_2.0].z
+                    ),
+                    Vec3f::new(
+                        object.vertices[vtx_3.0].x,
+                        object.vertices[vtx_3.0].y,
+                        object.vertices[vtx_3.0].z
+                    ),
+                ]);
+            },
+            _ => {}
+        }
+    }
+
     // let mut t0 = vec![Vector2 {x: 10,  y: 70},  Vector2 {x: 50,  y: 160}, Vector2 {x: 70,  y: 80}]; 
     // let mut t1 = vec![Vector2 {x: 180, y: 50},  Vector2 {x: 150, y: 1},   Vector2 {x: 70,  y: 180}]; 
     // let mut t2 = vec![Vector2 {x: 180, y: 150}, Vector2 {x: 120, y: 160}, Vector2 {x: 130, y: 180}]; 
@@ -166,50 +200,44 @@ fn main() {
 
     // canvas.present();
 
+    let mut angle = 0.0;
+
     'main: loop {
         canvas.set_draw_color(pixels::Color::RGB(0, 0, 0));
         canvas.clear();
 
-        for shape in shapes {
-            match shape.primitive {
-                wavefront_obj::obj::Primitive::Triangle(vtx_1, vtx_2, vtx_3) => {
-                    let vertices = [
-                        object.vertices[vtx_1.0],
-                        object.vertices[vtx_2.0],
-                        object.vertices[vtx_3.0],
-                    ];
-                    let bbox = [
-                        vertices.iter().map(|v| v.x).fold(std::f64::INFINITY, |a, b| a.min(b)), // Left
-                        vertices.iter().map(|v| v.y).fold(std::f64::INFINITY, |a, b| a.min(b)), // Bottom
-                        vertices.iter().map(|v| v.x).fold(std::f64::NEG_INFINITY, |a, b| a.max(b)), // Right
-                        vertices.iter().map(|v| v.y).fold(std::f64::NEG_INFINITY, |a, b| a.max(b)), // Top
-                    ];
+        let angle_rad: f64 = (angle * 2.0 * 3.14159) / 360.0;
 
-                    // if bbox[2] > -0.5 || bbox[3] > -0.5 {
-                    //     continue;
-                    // }
+        for tri in model.iter() {
+            // Screen coordinates triangle
+            let mut tri_screen = [Vec2f::new_zero(); 3];
 
-                    let mut screen_tri = vec![];
-
-                    for i in 0..3 {
-                        screen_tri.push(Vector2 {
-                            x: ((vertices[i].x + 1.0) * SCREEN_WIDTH as f64 / 2.0) as i16,
-                            y: ((vertices[i].y + 1.0) * SCREEN_HEIGHT as f64 / 2.0) as i16,
-                        });
-                    }
-
-                    triangle(
-                        &canvas,
-                        &mut screen_tri,
-                        pixels::Color::RGB(
-                            rand::random::<u8>(),
-                            rand::random::<u8>(),
-                            rand::random::<u8>()
-                        )
-                    );
-                },
-                _ => {}
+            for i in 0..3 {
+                tri_screen[i] = Vec2f::new(
+                    (tri[i].x + 1.0) * SCREEN_WIDTH as f64 / 2.0,
+                    (tri[i].y + 1.0) * SCREEN_HEIGHT as f64 / 2.0
+                );
             }
+
+            // Get triangle normal
+            let a = tri[2] - tri[0];
+            let b = tri[1] - tri[0];
+            let normal = a.cross(&b).normalize();
+
+            // Get light intensity
+            let light = Vec3f::new(angle_rad.sin(), 0.0, angle_rad.cos());
+            let light_intensity = normal.dot(&light);
+            let color = (255.0 * light_intensity) as u8;
+
+            if light_intensity > 0.0 {
+                triangle(&canvas, &mut tri_screen, pixels::Color::RGB(color, color, color));
+            }
+        }
+
+        angle += 5.0;
+
+        if angle > 360.0 {
+            angle -= 360.0;
         }
 
         canvas.present();
