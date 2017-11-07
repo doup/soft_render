@@ -1,70 +1,25 @@
 extern crate sdl2;
-extern crate wavefront_obj;
 extern crate rand;
+extern crate wavefront_obj;
 
+mod model;
 mod vec2f;
 mod vec3f;
 
+use model::load_model;
 use vec2f::Vec2f;
 use vec3f::Vec3f;
 
-use std::io::prelude::*;
-use std::fs::File;
 use std::path::PathBuf;
 
 use sdl2::event::Event;
 use sdl2::pixels;
 use sdl2::keyboard::Keycode;
 use sdl2::render::WindowCanvas;
-
 use sdl2::gfx::primitives::DrawRenderer;
-
-use wavefront_obj::obj::Vertex;
 
 const SCREEN_WIDTH: u32 = 600;
 const SCREEN_HEIGHT: u32 = 600;
-
-#[derive(Debug, Copy, Clone)]
-struct Vector2<T> {
-    x: T,
-    y: T,
-}
-
-impl Vector2<i16> {
-    fn new() -> Vector2<i16> {
-        Vector2 {
-            x: 0,
-            y: 0,
-        }
-    }
-}
-
-impl std::ops::Add for Vector2<i16> {
-    type Output = Vector2<i16>;
-
-    fn add(self, other: Vector2<i16>) -> Vector2<i16> {
-        Vector2 { x: self.x + other.x, y: self.y + other.y }
-    }
-}
-
-impl std::ops::Sub for Vector2<i16> {
-    type Output = Vector2<i16>;
-
-    fn sub(self, other: Vector2<i16>) -> Vector2<i16> {
-        Vector2 { x: self.x - other.x, y: self.y - other.y }
-    }
-}
-
-impl std::ops::Mul<f64> for Vector2<i16> {
-    type Output = Vector2<i16>;
-
-    fn mul(self, other: f64) -> Vector2<i16> {
-        Vector2 {
-            x: (self.x as f64 * other) as i16,
-            y: (self.y as f64 * other) as i16,
-        }
-    }
-}
 
 fn put_pixel(canvas: &WindowCanvas, x: i16, y: i16, color: pixels::Color) {
     canvas.pixel(x, SCREEN_HEIGHT as i16 - y, color).unwrap();
@@ -120,20 +75,20 @@ fn triangle(canvas: &WindowCanvas, tri: &[Vec2f; 3], color: pixels::Color) {
     );
 
     let bbox_max = Vec2f::new(
-        tri.iter().map(|v| v.x).fold(std::f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_WIDTH - 1) as f64)),  // Right
-        tri.iter().map(|v| v.y).fold(std::f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_HEIGHT - 1) as f64))  // Top
+        tri.iter().map(|v| v.x).fold(std::f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_WIDTH - 1) as f64)), // Right
+        tri.iter().map(|v| v.y).fold(std::f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_HEIGHT - 1) as f64)) // Top
     );
 
     for x in (bbox_min.x as i16)..(bbox_max.x.ceil() as i16) {
         for y in (bbox_min.y as i16)..(bbox_max.y.ceil() as i16) {
-            let p = Vec2f::new(x as f64 + 0.5, y as f64 + 0.5);
-            let bc_screen = barycentric(tri, p);
+            let sample = Vec2f::new(x as f64 + 0.5, y as f64 + 0.5);
+            let bc_screen = barycentric(tri, sample);
 
             if bc_screen.x < 0.0 || bc_screen.y < 0.0 || bc_screen.z < 0.0 {
                 continue;
             }
 
-            put_pixel(canvas, p.x.floor() as i16, p.y.floor() as i16, color);
+            put_pixel(canvas, x, y, color);
         }
     }
 }
@@ -151,62 +106,14 @@ fn main() {
     let mut events = sdl_context.event_pump().unwrap();
 
     // Set OBJ file path
-    let mut obj_file = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    obj_file.push("assets/african_head.obj");
+    let mut model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    model_path.push("assets/african_head.obj");
 
-    // Load OBJ
-    let mut file = File::open(obj_file).expect("Unable to open the file");
-    let mut obj_string = String::new();
-    file.read_to_string(&mut obj_string).expect("Unable to read the file");
-
-    let obj = wavefront_obj::obj::parse(obj_string).unwrap();
-    let object = &obj.objects[0];
-    let shapes = &object.geometry[0].shapes;
-
-    let mut model = vec![];
-
-    for shape in shapes {
-        match shape.primitive {
-            wavefront_obj::obj::Primitive::Triangle(vtx_1, vtx_2, vtx_3) => {
-                model.push([
-                    Vec3f::new(
-                        object.vertices[vtx_1.0].x,
-                        object.vertices[vtx_1.0].y,
-                        object.vertices[vtx_1.0].z
-                    ),
-                    Vec3f::new(
-                        object.vertices[vtx_2.0].x,
-                        object.vertices[vtx_2.0].y,
-                        object.vertices[vtx_2.0].z
-                    ),
-                    Vec3f::new(
-                        object.vertices[vtx_3.0].x,
-                        object.vertices[vtx_3.0].y,
-                        object.vertices[vtx_3.0].z
-                    ),
-                ]);
-            },
-            _ => {}
-        }
-    }
-
-    // let mut t0 = vec![Vector2 {x: 10,  y: 70},  Vector2 {x: 50,  y: 160}, Vector2 {x: 70,  y: 80}]; 
-    // let mut t1 = vec![Vector2 {x: 180, y: 50},  Vector2 {x: 150, y: 1},   Vector2 {x: 70,  y: 180}]; 
-    // let mut t2 = vec![Vector2 {x: 180, y: 150}, Vector2 {x: 120, y: 160}, Vector2 {x: 130, y: 180}]; 
-
-    // triangle(&canvas, &mut t0, pixels::Color::RGB(255, 0, 0)); 
-    // triangle(&canvas, &mut t1, pixels::Color::RGB(255, 255, 255)); 
-    // triangle(&canvas, &mut t2, pixels::Color::RGB(0, 255, 0)); 
-
-    // canvas.present();
-
-    let mut angle = 0.0;
+    let model = load_model(model_path);
 
     'main: loop {
         canvas.set_draw_color(pixels::Color::RGB(0, 0, 0));
         canvas.clear();
-
-        let angle_rad: f64 = (angle * 2.0 * 3.14159) / 360.0;
 
         for tri in model.iter() {
             // Screen coordinates triangle
@@ -225,19 +132,13 @@ fn main() {
             let normal = a.cross(&b).normalize();
 
             // Get light intensity
-            let light = Vec3f::new(angle_rad.sin(), 0.0, angle_rad.cos());
+            let light = Vec3f::new(0.0, 0.0, -1.0);
             let light_intensity = normal.dot(&light);
             let color = (255.0 * light_intensity) as u8;
 
             if light_intensity > 0.0 {
                 triangle(&canvas, &mut tri_screen, pixels::Color::RGB(color, color, color));
             }
-        }
-
-        angle += 5.0;
-
-        if angle > 360.0 {
-            angle -= 360.0;
         }
 
         canvas.present();
