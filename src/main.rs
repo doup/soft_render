@@ -11,6 +11,7 @@ use vec2f::Vec2f;
 use vec3f::Vec3f;
 
 use std::path::PathBuf;
+use std::f64;
 
 use sdl2::event::Event;
 use sdl2::pixels;
@@ -20,6 +21,7 @@ use sdl2::gfx::primitives::DrawRenderer;
 
 const SCREEN_WIDTH: u32 = 600;
 const SCREEN_HEIGHT: u32 = 600;
+const SCREEN_BUFFER: usize = (SCREEN_WIDTH * SCREEN_HEIGHT) as usize;
 
 fn put_pixel(canvas: &WindowCanvas, x: i16, y: i16, color: pixels::Color) {
     canvas.pixel(x, SCREEN_HEIGHT as i16 - y, color).unwrap();
@@ -53,7 +55,7 @@ fn line(canvas: &WindowCanvas, mut x0: i16, mut y0: i16, mut x1: i16, mut y1: i1
     }
 }
 
-fn barycentric(tri: &[Vec2f; 3], p: Vec2f) -> Vec3f {
+fn barycentric(tri: &[Vec3f; 3], p: Vec3f) -> Vec3f {
     let u = Vec3f::new(tri[2].x - tri[0].x, tri[1].x - tri[0].x, tri[0].x - p.x).cross(&Vec3f::new(tri[2].y - tri[0].y, tri[1].y - tri[0].y, tri[0].y - p.y));
 
     // triangle is degenerate, in this case return something with negative coordinates 
@@ -68,27 +70,34 @@ fn barycentric(tri: &[Vec2f; 3], p: Vec2f) -> Vec3f {
     )
 }
 
-fn triangle(canvas: &WindowCanvas, tri: &[Vec2f; 3], color: pixels::Color) {
+fn triangle(canvas: &WindowCanvas, tri: &[Vec3f; 3], color: pixels::Color, zbuffer: &mut [f64; SCREEN_BUFFER]) {
     let bbox_min = Vec2f::new(
         tri.iter().map(|v| v.x).fold(std::f64::INFINITY, |a, b| a.min(b).max(0.0)), // Left
         tri.iter().map(|v| v.y).fold(std::f64::INFINITY, |a, b| a.min(b).max(0.0))  // Bottom
     );
 
     let bbox_max = Vec2f::new(
-        tri.iter().map(|v| v.x).fold(std::f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_WIDTH - 1) as f64)), // Right
-        tri.iter().map(|v| v.y).fold(std::f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_HEIGHT - 1) as f64)) // Top
+        tri.iter().map(|v| v.x).fold(f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_WIDTH - 1) as f64)), // Right
+        tri.iter().map(|v| v.y).fold(f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_HEIGHT - 1) as f64)) // Top
     );
 
-    for x in (bbox_min.x as i16)..(bbox_max.x.ceil() as i16) {
-        for y in (bbox_min.y as i16)..(bbox_max.y.ceil() as i16) {
-            let sample = Vec2f::new(x as f64 + 0.5, y as f64 + 0.5);
+    for x in (bbox_min.x as usize)..(bbox_max.x.ceil() as usize) {
+        for y in (bbox_min.y as usize)..(bbox_max.y.ceil() as usize) {
+            let mut sample = Vec3f::new(x as f64 + 0.5, y as f64 + 0.5, 0.0);
             let bc_screen = barycentric(tri, sample);
 
             if bc_screen.x < 0.0 || bc_screen.y < 0.0 || bc_screen.z < 0.0 {
                 continue;
             }
 
-            put_pixel(canvas, x, y, color);
+            sample.z = tri[0].z * bc_screen.x + tri[1].z * bc_screen.y + tri[2].z * bc_screen.z;
+
+            let zindex = (y * SCREEN_WIDTH as usize) + x;
+
+            if zbuffer[zindex] < sample.z {
+                zbuffer[zindex] = sample.z;
+                put_pixel(canvas, x as i16, y as i16, color);
+            }
         }
     }
 }
@@ -115,14 +124,17 @@ fn main() {
         canvas.set_draw_color(pixels::Color::RGB(0, 0, 0));
         canvas.clear();
 
+        let mut zbuffer = [f64::NEG_INFINITY; SCREEN_BUFFER];
+
         for tri in model.iter() {
             // Screen coordinates triangle
-            let mut tri_screen = [Vec2f::new_zero(); 3];
+            let mut tri_screen = [Vec3f::new_zero(); 3];
 
             for i in 0..3 {
-                tri_screen[i] = Vec2f::new(
+                tri_screen[i] = Vec3f::new(
                     (tri[i].x + 1.0) * SCREEN_WIDTH as f64 / 2.0,
-                    (tri[i].y + 1.0) * SCREEN_HEIGHT as f64 / 2.0
+                    (tri[i].y + 1.0) * SCREEN_HEIGHT as f64 / 2.0,
+                    tri[i].z
                 );
             }
 
@@ -137,7 +149,7 @@ fn main() {
             let color = (255.0 * light_intensity) as u8;
 
             if light_intensity > 0.0 {
-                triangle(&canvas, &mut tri_screen, pixels::Color::RGB(color, color, color));
+                triangle(&canvas, &mut tri_screen, pixels::Color::RGB(color, color, color), &mut zbuffer);
             }
         }
 
