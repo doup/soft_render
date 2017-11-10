@@ -1,17 +1,22 @@
-extern crate sdl2;
+extern crate image;
 extern crate rand;
+extern crate sdl2;
 extern crate wavefront_obj;
 
 mod model;
 mod vec2f;
 mod vec3f;
+mod triangle;
 
 use model::load_model;
 use vec2f::Vec2f;
 use vec3f::Vec3f;
+use triangle::Triangle;
 
-use std::path::PathBuf;
 use std::f64;
+use std::path::PathBuf;
+
+use image::GenericImage;
 
 use sdl2::event::Event;
 use sdl2::pixels;
@@ -55,7 +60,7 @@ fn line(canvas: &WindowCanvas, mut x0: i16, mut y0: i16, mut x1: i16, mut y1: i1
     }
 }
 
-fn barycentric(tri: &[Vec3f; 3], p: Vec3f) -> Vec3f {
+fn barycentric(tri: &[Vec2f; 3], p: Vec2f) -> Vec3f {
     let u = Vec3f::new(tri[2].x - tri[0].x, tri[1].x - tri[0].x, tri[0].x - p.x).cross(&Vec3f::new(tri[2].y - tri[0].y, tri[1].y - tri[0].y, tri[0].y - p.y));
 
     // triangle is degenerate, in this case return something with negative coordinates 
@@ -70,33 +75,37 @@ fn barycentric(tri: &[Vec3f; 3], p: Vec3f) -> Vec3f {
     )
 }
 
-fn triangle(canvas: &WindowCanvas, tri: &[Vec3f; 3], color: pixels::Color, zbuffer: &mut [f64; SCREEN_BUFFER]) {
+fn triangle(canvas: &WindowCanvas, tri: &Triangle, tri_screen: &[Vec2f; 3], pixel_shader: Box<(Fn(f64, f64) -> pixels::Color)>, zbuffer: &mut [f64; SCREEN_BUFFER]) {
     let bbox_min = Vec2f::new(
-        tri.iter().map(|v| v.x).fold(std::f64::INFINITY, |a, b| a.min(b).max(0.0)), // Left
-        tri.iter().map(|v| v.y).fold(std::f64::INFINITY, |a, b| a.min(b).max(0.0))  // Bottom
+        tri_screen.iter().map(|v| v.x).fold(std::f64::INFINITY, |a, b| a.min(b).max(0.0)), // Left
+        tri_screen.iter().map(|v| v.y).fold(std::f64::INFINITY, |a, b| a.min(b).max(0.0))  // Bottom
     );
 
     let bbox_max = Vec2f::new(
-        tri.iter().map(|v| v.x).fold(f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_WIDTH - 1) as f64)), // Right
-        tri.iter().map(|v| v.y).fold(f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_HEIGHT - 1) as f64)) // Top
+        tri_screen.iter().map(|v| v.x).fold(f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_WIDTH - 1) as f64)), // Right
+        tri_screen.iter().map(|v| v.y).fold(f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_HEIGHT - 1) as f64)) // Top
     );
 
     for x in (bbox_min.x as usize)..(bbox_max.x.ceil() as usize) {
         for y in (bbox_min.y as usize)..(bbox_max.y.ceil() as usize) {
-            let mut sample = Vec3f::new(x as f64 + 0.5, y as f64 + 0.5, 0.0);
-            let bc_screen = barycentric(tri, sample);
+            let mut sample = Vec2f::new(x as f64 + 0.5, y as f64 + 0.5);
+            let bc_screen = barycentric(tri_screen, sample);
 
             if bc_screen.x < 0.0 || bc_screen.y < 0.0 || bc_screen.z < 0.0 {
                 continue;
             }
 
-            sample.z = tri[0].z * bc_screen.x + tri[1].z * bc_screen.y + tri[2].z * bc_screen.z;
-
+            let sample_z = tri.vertices[0].z * bc_screen.x + tri.vertices[1].z * bc_screen.y + tri.vertices[2].z * bc_screen.z;
+            
             let zindex = (y * SCREEN_WIDTH as usize) + x;
 
-            if zbuffer[zindex] < sample.z {
-                zbuffer[zindex] = sample.z;
-                put_pixel(canvas, x as i16, y as i16, color);
+            if zbuffer[zindex] < sample_z {
+                zbuffer[zindex] = sample_z;
+
+                let u = tri.uv[0].x * bc_screen.x + tri.uv[1].x * bc_screen.y + tri.uv[2].x * bc_screen.z;
+                let v = tri.uv[0].y * bc_screen.x + tri.uv[1].y * bc_screen.y + tri.uv[2].y * bc_screen.z;
+
+                put_pixel(canvas, x as i16, y as i16, pixel_shader(u, v));
             }
         }
     }
@@ -114,11 +123,53 @@ fn main() {
     let mut canvas = window.into_canvas().build().unwrap();
     let mut events = sdl_context.event_pump().unwrap();
 
+    // Use the open function to load an image from a Path.
+    // ```open``` returns a dynamic image.
+    let mut diffuse_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    diffuse_path.push("assets/african_head_diffuse.jpg");
+    let diffuse = image::open(diffuse_path).unwrap();
+
     // Set OBJ file path
     let mut model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     model_path.push("assets/african_head.obj");
 
     let model = load_model(model_path);
+
+    // let shader_diffuse = |light_intensity: f64, diffuse: &Box<image::DynamicImage>| {
+    //     Box::new(|u: f64, v: f64| -> sdl2::pixels::Color {
+    //         let texture = diffuse.get_pixel(
+    //             (u * diffuse.width() as f64) as u32,
+    //             (diffuse.height() as f64 - v * diffuse.height() as f64) as u32
+    //         );
+
+    //         pixels::Color::RGB(
+    //             (light_intensity * (texture.data[0] as f64)) as u8,
+    //             (light_intensity * (texture.data[1] as f64)) as u8,
+    //             (light_intensity * (texture.data[2] as f64)) as u8
+    //         )
+    //     })
+    // };
+
+    // let shader_uv = |light_intensity: f64| {
+    //     let color_channel = 255.0 * light_intensity;
+
+    //     move |u: f64, v: f64| -> sdl2::pixels::Color {
+    //         pixels::Color::RGB(
+    //             (color_channel * u) as u8,
+    //             (color_channel * v) as u8,
+    //             color_channel as u8
+    //         )
+    //     }
+    // };
+
+    let shader_flat = |light_intensity: f64| {
+        let color_channel = (255.0 * light_intensity) as u8;
+        let color = pixels::Color::RGB(color_channel, color_channel, color_channel);
+
+        Box::new(move |u: f64, v: f64| -> sdl2::pixels::Color {
+            color
+        })
+    };
 
     'main: loop {
         canvas.set_draw_color(pixels::Color::RGB(0, 0, 0));
@@ -128,29 +179,29 @@ fn main() {
 
         for tri in model.iter() {
             // Screen coordinates triangle
-            let mut tri_screen = [Vec3f::new_zero(); 3];
+            let mut tri_screen = [Vec2f::new_zero(); 3];
 
             for i in 0..3 {
-                tri_screen[i] = Vec3f::new(
-                    (tri[i].x + 1.0) * SCREEN_WIDTH as f64 / 2.0,
-                    (tri[i].y + 1.0) * SCREEN_HEIGHT as f64 / 2.0,
-                    tri[i].z
+                tri_screen[i] = Vec2f::new(
+                    (tri.vertices[i].x + 1.0) * SCREEN_WIDTH as f64 / 2.0,
+                    (tri.vertices[i].y + 1.0) * SCREEN_HEIGHT as f64 / 2.0
                 );
             }
 
-            // Get triangle normal
-            let a = tri[2] - tri[0];
-            let b = tri[1] - tri[0];
-            let normal = a.cross(&b).normalize();
+            let normal = tri.normal();
 
             // Get light intensity
             let light = Vec3f::new(0.0, 0.0, -1.0);
-            let light_intensity = normal.dot(&light);
-            let color = (255.0 * light_intensity) as u8;
+            let mut light_intensity = normal.dot(&light);
 
-            if light_intensity > 0.0 {
-                triangle(&canvas, &mut tri_screen, pixels::Color::RGB(color, color, color), &mut zbuffer);
-            }
+            light_intensity = if light_intensity < 0.0 { 0.0 } else { light_intensity };
+
+            //let shader = shader_diffuse(light_intensity, &diffuse);
+            //let shader = shader_uv(light_intensity);
+            let shader = shader_flat(light_intensity);
+            //let shader = shader_diffuse(light_intensity, diffuse.clone());
+
+            triangle(&canvas, &tri, &mut tri_screen, shader, &mut zbuffer);
         }
 
         canvas.present();
