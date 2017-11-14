@@ -227,9 +227,12 @@ fn main() {
             let normal = tri.normal();
 
             // Get light intensity
-            let light_intensity = normal.dot(&light_dir);
+            let mut light_intensity = normal.dot(&light_dir);
 
-            shader.light_intensity = if light_intensity < 0.0 { 0.0 } else { light_intensity };
+            light_intensity = if light_intensity < 0.0 { 0.0 } else { light_intensity };
+            light_intensity = if light_intensity > 1.0 { 1.0 } else { light_intensity };
+
+            shader.light_intensity = light_intensity;
 
             triangle(&canvas, &tri, &mut tri_screen, &shader, &mut zbuffer);
         }
@@ -239,12 +242,14 @@ fn main() {
         for event in events.poll_iter() {
             match event {
                 Event::MouseMotion { x, y, .. } => {
-                    light_dir = Vec3f::new(
-                        -((x as f64 / SCREEN_WIDTH as f64) * 2.0 - 1.0),
-                        (y as f64 / SCREEN_HEIGHT as f64) * 2.0 - 1.0,
-                        -1.0
+                    let center = Vec3f::new_zero();
+                    let mouse_pos = Vec3f::new(
+                        (x as f64 / SCREEN_WIDTH as f64) * 2.0 - 1.0,
+                        -((y as f64 / SCREEN_HEIGHT as f64) * 2.0 - 1.0),
+                        1.0
                     );
 
+                    light_dir = center - mouse_pos;
                     light_dir.normalize();
                 },
                 Event::Quit {..} => break 'main,
