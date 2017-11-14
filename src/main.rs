@@ -115,6 +115,38 @@ trait PixelShader {
     fn render(&self, u: f64, v: f64) -> pixels::Color;
 }
 
+struct ShaderFlat {
+    light_intensity: f64,
+}
+
+impl PixelShader for ShaderFlat {
+    fn render(&self, u: f64, v: f64) -> pixels::Color {
+        let color_channel = (255.0 * self.light_intensity) as u8;
+
+        pixels::Color::RGB(
+            color_channel, 
+            color_channel, 
+            color_channel
+        )
+    }
+}
+
+struct ShaderUV {
+    light_intensity: f64,
+}
+
+impl PixelShader for ShaderUV {
+    fn render(&self, u: f64, v: f64) -> pixels::Color {
+        let color_channel = 255.0 * self.light_intensity;
+
+        pixels::Color::RGB(
+            (color_channel * u) as u8,
+            (color_channel * v) as u8,
+            color_channel as u8
+        )
+    }
+}
+
 struct ShaderDiffuse {
     image: image::DynamicImage,
     light_intensity: f64,
@@ -159,40 +191,12 @@ fn main() {
 
     let model = load_model(model_path);
 
-    // let shader_diffuse = |light_intensity: f64, diffuse: &Box<image::DynamicImage>| {
-    //     Box::new(|u: f64, v: f64| -> sdl2::pixels::Color {
-    //         let texture = diffuse.get_pixel(
-    //             (u * diffuse.width() as f64) as u32,
-    //             (diffuse.height() as f64 - v * diffuse.height() as f64) as u32
-    //         );
-
-    //         pixels::Color::RGB(
-    //             (light_intensity * (texture.data[0] as f64)) as u8,
-    //             (light_intensity * (texture.data[1] as f64)) as u8,
-    //             (light_intensity * (texture.data[2] as f64)) as u8
-    //         )
-    //     })
+    // let mut shader = ShaderFlat {
+    //     light_intensity: 1.0,
     // };
 
-    // let shader_uv = |light_intensity: f64| {
-    //     let color_channel = 255.0 * light_intensity;
-
-    //     move |u: f64, v: f64| -> sdl2::pixels::Color {
-    //         pixels::Color::RGB(
-    //             (color_channel * u) as u8,
-    //             (color_channel * v) as u8,
-    //             color_channel as u8
-    //         )
-    //     }
-    // };
-
-    // let shader_flat = |light_intensity: f64| {
-    //     let color_channel = (255.0 * light_intensity) as u8;
-    //     let color = pixels::Color::RGB(color_channel, color_channel, color_channel);
-
-    //     move |u: f64, v: f64| -> pixels::Color {
-    //         color
-    //     }
+    // let mut shader = ShaderUV {
+    //     light_intensity: 1.0,
     // };
 
     let mut shader = ShaderDiffuse {
@@ -226,11 +230,6 @@ fn main() {
             let light_intensity = normal.dot(&light_dir);
 
             shader.light_intensity = if light_intensity < 0.0 { 0.0 } else { light_intensity };
-
-            //let shader = shader_diffuse(light_intensity, &diffuse);
-            //let shader = shader_uv(light_intensity);
-            //let shader = shader_flat(light_intensity);
-            //let shader = shader_diffuse(light_intensity, diffuse.clone());
 
             triangle(&canvas, &tri, &mut tri_screen, &shader, &mut zbuffer);
         }
