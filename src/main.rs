@@ -75,7 +75,7 @@ fn barycentric(tri: &[Vec2f; 3], p: Vec2f) -> Vec3f {
     )
 }
 
-fn triangle(canvas: &WindowCanvas, tri: &Triangle, tri_screen: &[Vec2f; 3], pixel_shader: Box<(Fn(f64, f64) -> pixels::Color)>, zbuffer: &mut [f64; SCREEN_BUFFER]) {
+fn triangle(canvas: &WindowCanvas, tri: &Triangle, tri_screen: &[Vec2f; 3], pixel_shader: &PixelShader, zbuffer: &mut [f64; SCREEN_BUFFER]) {
     let bbox_min = Vec2f::new(
         tri_screen.iter().map(|v| v.x).fold(std::f64::INFINITY, |a, b| a.min(b).max(0.0)), // Left
         tri_screen.iter().map(|v| v.y).fold(std::f64::INFINITY, |a, b| a.min(b).max(0.0))  // Bottom
@@ -105,9 +105,33 @@ fn triangle(canvas: &WindowCanvas, tri: &Triangle, tri_screen: &[Vec2f; 3], pixe
                 let u = tri.uv[0].x * bc_screen.x + tri.uv[1].x * bc_screen.y + tri.uv[2].x * bc_screen.z;
                 let v = tri.uv[0].y * bc_screen.x + tri.uv[1].y * bc_screen.y + tri.uv[2].y * bc_screen.z;
 
-                put_pixel(canvas, x as i16, y as i16, pixel_shader(u, v));
+                put_pixel(canvas, x as i16, y as i16, pixel_shader.render(u, v));
             }
         }
+    }
+}
+
+trait PixelShader {
+    fn render(&self, u: f64, v: f64) -> pixels::Color;
+}
+
+struct ShaderDiffuse {
+    image: image::DynamicImage,
+    light_intensity: f64,
+}
+
+impl PixelShader for ShaderDiffuse {
+    fn render(&self, u: f64, v: f64) -> pixels::Color {
+        let texture = self.image.get_pixel(
+            (u * self.image.width() as f64) as u32,
+            (self.image.height() as f64 - v * self.image.height() as f64) as u32
+        );
+
+        pixels::Color::RGB(
+            (self.light_intensity * (texture.data[0] as f64)) as u8,
+            (self.light_intensity * (texture.data[1] as f64)) as u8,
+            (self.light_intensity * (texture.data[2] as f64)) as u8
+        )
     }
 }
 
@@ -162,19 +186,27 @@ fn main() {
     //     }
     // };
 
-    let shader_flat = |light_intensity: f64| {
-        let color_channel = (255.0 * light_intensity) as u8;
-        let color = pixels::Color::RGB(color_channel, color_channel, color_channel);
+    // let shader_flat = |light_intensity: f64| {
+    //     let color_channel = (255.0 * light_intensity) as u8;
+    //     let color = pixels::Color::RGB(color_channel, color_channel, color_channel);
 
-        Box::new(move |u: f64, v: f64| -> sdl2::pixels::Color {
-            color
-        })
+    //     move |u: f64, v: f64| -> pixels::Color {
+    //         color
+    //     }
+    // };
+
+    let mut shader = ShaderDiffuse {
+        image: diffuse,
+        light_intensity: 1.0,
     };
+
+    let mut light_dir = Vec3f::new(0.0, 0.0, -1.0);
 
     'main: loop {
         canvas.set_draw_color(pixels::Color::RGB(0, 0, 0));
         canvas.clear();
 
+        // Reset ZBuffer
         let mut zbuffer = [f64::NEG_INFINITY; SCREEN_BUFFER];
 
         for tri in model.iter() {
@@ -191,23 +223,31 @@ fn main() {
             let normal = tri.normal();
 
             // Get light intensity
-            let light = Vec3f::new(0.0, 0.0, -1.0);
-            let mut light_intensity = normal.dot(&light);
+            let light_intensity = normal.dot(&light_dir);
 
-            light_intensity = if light_intensity < 0.0 { 0.0 } else { light_intensity };
+            shader.light_intensity = if light_intensity < 0.0 { 0.0 } else { light_intensity };
 
             //let shader = shader_diffuse(light_intensity, &diffuse);
             //let shader = shader_uv(light_intensity);
-            let shader = shader_flat(light_intensity);
+            //let shader = shader_flat(light_intensity);
             //let shader = shader_diffuse(light_intensity, diffuse.clone());
 
-            triangle(&canvas, &tri, &mut tri_screen, shader, &mut zbuffer);
+            triangle(&canvas, &tri, &mut tri_screen, &shader, &mut zbuffer);
         }
 
         canvas.present();
 
         for event in events.poll_iter() {
             match event {
+                Event::MouseMotion { x, y, .. } => {
+                    light_dir = Vec3f::new(
+                        -((x as f64 / SCREEN_WIDTH as f64) * 2.0 - 1.0),
+                        (y as f64 / SCREEN_HEIGHT as f64) * 2.0 - 1.0,
+                        -1.0
+                    );
+
+                    light_dir.normalize();
+                },
                 Event::Quit {..} => break 'main,
                 Event::KeyDown {keycode: Some(keycode), ..} => {
                     if keycode == Keycode::Escape {
