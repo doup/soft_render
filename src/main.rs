@@ -1,3 +1,4 @@
+extern crate cgmath;
 extern crate image;
 extern crate rand;
 extern crate sdl2;
@@ -5,13 +6,14 @@ extern crate time;
 extern crate wavefront_obj;
 
 mod model;
-mod vec2f;
-mod vec3f;
 mod triangle;
 
+use cgmath::SquareMatrix;
+use cgmath::InnerSpace;
+use cgmath::Vector2;
+use cgmath::Vector3;
+
 use model::load_model;
-use vec2f::Vec2f;
-use vec3f::Vec3f;
 use triangle::Triangle;
 
 use std::f64;
@@ -61,35 +63,35 @@ fn line(canvas: &WindowCanvas, mut x0: i16, mut y0: i16, mut x1: i16, mut y1: i1
     }
 }
 
-fn barycentric(tri: &[Vec2f; 3], p: Vec2f) -> Vec3f {
-    let u = Vec3f::new(tri[2].x - tri[0].x, tri[1].x - tri[0].x, tri[0].x - p.x).cross(&Vec3f::new(tri[2].y - tri[0].y, tri[1].y - tri[0].y, tri[0].y - p.y));
+fn barycentric(tri: &[Vector2<f64>; 3], p: Vector2<f64>) -> Vector3<f64> {
+    let u = Vector3::new(tri[2].x - tri[0].x, tri[1].x - tri[0].x, tri[0].x - p.x).cross(Vector3::new(tri[2].y - tri[0].y, tri[1].y - tri[0].y, tri[0].y - p.y));
 
     // triangle is degenerate, in this case return something with negative coordinates 
     if u.z.abs() < 1.0 {
-        return Vec3f::new(-1.0, 1.0, 1.0)
+        return Vector3::new(-1.0, 1.0, 1.0)
     }
 
-    Vec3f::new(
+    Vector3::new(
         1.0 - (u.x + u.y) / u.z,
         u.y / u.z,
         u.x / u.z
     )
 }
 
-fn triangle(canvas: &WindowCanvas, tri: &Triangle, tri_screen: &[Vec2f; 3], pixel_shader: &PixelShader, zbuffer: &mut [f64; SCREEN_BUFFER]) {
-    let bbox_min = Vec2f::new(
+fn triangle(canvas: &WindowCanvas, tri: &Triangle, tri_screen: &[Vector2<f64>; 3], pixel_shader: &PixelShader, zbuffer: &mut [f64; SCREEN_BUFFER]) {
+    let bbox_min = Vector2::new(
         tri_screen.iter().map(|v| v.x).fold(std::f64::INFINITY, |a, b| a.min(b).max(0.0)), // Left
         tri_screen.iter().map(|v| v.y).fold(std::f64::INFINITY, |a, b| a.min(b).max(0.0))  // Bottom
     );
 
-    let bbox_max = Vec2f::new(
+    let bbox_max = Vector2::new(
         tri_screen.iter().map(|v| v.x).fold(f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_WIDTH - 1) as f64)), // Right
         tri_screen.iter().map(|v| v.y).fold(f64::NEG_INFINITY, |a, b| a.max(b).min((SCREEN_HEIGHT - 1) as f64)) // Top
     );
 
     for x in (bbox_min.x as usize)..(bbox_max.x.ceil() as usize) {
         for y in (bbox_min.y as usize)..(bbox_max.y.ceil() as usize) {
-            let mut sample = Vec2f::new(x as f64 + 0.5, y as f64 + 0.5);
+            let mut sample = Vector2::new(x as f64 + 0.5, y as f64 + 0.5);
             let bc_screen = barycentric(tri_screen, sample);
 
             if bc_screen.x < 0.0 || bc_screen.y < 0.0 || bc_screen.z < 0.0 {
@@ -205,7 +207,7 @@ fn main() {
         light_intensity: 1.0,
     };
 
-    let mut light_dir = Vec3f::new(0.0, 0.0, -1.0);
+    let mut light_dir = Vector3::new(0.0, 0.0, -1.0);
 
     // FPS
     let mut last_time = time::precise_time_s();
@@ -236,10 +238,10 @@ fn main() {
 
         for tri in model.iter() {
             // Screen coordinates triangle
-            let mut tri_screen = [Vec2f::new_zero(); 3];
+            let mut tri_screen = [Vector2::new(0.0, 0.0); 3];
 
             for i in 0..3 {
-                tri_screen[i] = Vec2f::new(
+                tri_screen[i] = Vector2::new(
                     (tri.vertices[i].x + 1.0) * SCREEN_WIDTH as f64 / 2.0,
                     (tri.vertices[i].y + 1.0) * SCREEN_HEIGHT as f64 / 2.0
                 );
@@ -248,7 +250,7 @@ fn main() {
             let normal = tri.normal();
 
             // Get light intensity
-            let mut light_intensity = normal.dot(&light_dir);
+            let mut light_intensity = normal.dot(light_dir);
 
             light_intensity = if light_intensity < 0.0 { 0.0 } else { light_intensity };
             light_intensity = if light_intensity > 1.0 { 1.0 } else { light_intensity };
@@ -263,8 +265,8 @@ fn main() {
         for event in events.poll_iter() {
             match event {
                 Event::MouseMotion { x, y, .. } => {
-                    let center = Vec3f::new_zero();
-                    let mouse_pos = Vec3f::new(
+                    let center = Vector3::new(0.0, 0.0, 0.0);
+                    let mouse_pos = Vector3::new(
                         (x as f64 / SCREEN_WIDTH as f64) * 2.0 - 1.0,
                         -((y as f64 / SCREEN_HEIGHT as f64) * 2.0 - 1.0),
                         1.0

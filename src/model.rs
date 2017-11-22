@@ -1,5 +1,5 @@
 use triangle::Triangle;
-use vec3f::Vec3f;
+use cgmath::Vector3;
 
 use std::fs::File;
 use std::io::prelude::*;
@@ -27,34 +27,34 @@ pub fn load_model(path: PathBuf) -> Vec<Triangle> {
 
                 model.push(Triangle {
                     vertices: [
-                        Vec3f::new(
+                        Vector3::new(
                             object.vertices[vtx_1.0].x,
                             object.vertices[vtx_1.0].y,
                             object.vertices[vtx_1.0].z
                         ),
-                        Vec3f::new(
+                        Vector3::new(
                             object.vertices[vtx_2.0].x,
                             object.vertices[vtx_2.0].y,
                             object.vertices[vtx_2.0].z
                         ),
-                        Vec3f::new(
+                        Vector3::new(
                             object.vertices[vtx_3.0].x,
                             object.vertices[vtx_3.0].y,
                             object.vertices[vtx_3.0].z
                         ),
                     ],
                     uv: [
-                        Vec3f::new(
+                        Vector3::new(
                             object.tex_vertices[uvx_1].u,
                             object.tex_vertices[uvx_1].v,
                             object.tex_vertices[uvx_1].w
                         ),
-                        Vec3f::new(
+                        Vector3::new(
                             object.tex_vertices[uvx_2].u,
                             object.tex_vertices[uvx_2].v,
                             object.tex_vertices[uvx_2].w
                         ),
-                        Vec3f::new(
+                        Vector3::new(
                             object.tex_vertices[uvx_3].u,
                             object.tex_vertices[uvx_3].v,
                             object.tex_vertices[uvx_3].w
