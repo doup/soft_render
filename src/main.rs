@@ -1,6 +1,7 @@
 extern crate image;
 extern crate rand;
 extern crate sdl2;
+extern crate time;
 extern crate wavefront_obj;
 
 mod model;
@@ -206,7 +207,27 @@ fn main() {
 
     let mut light_dir = Vec3f::new(0.0, 0.0, -1.0);
 
+    // FPS
+    let mut last_time = time::precise_time_s();
+    let mut last_fps_print_time = last_time;
+    let mut last_fps = 30.0;
+    let fps_weight = 0.1;
+    let fps_print_time_interval = 2.0;
+
     'main: loop {
+        // FPS
+        let now = time::precise_time_s();
+        let fps = (1.0 / (now - last_time)) * fps_weight + ((1.0 - fps_weight) * last_fps);
+
+        last_time = now;
+        last_fps = fps;
+
+        if now - last_fps_print_time > fps_print_time_interval {
+            last_fps_print_time = now;
+            println!("FPS: {:?}", fps as u16);
+        }
+
+        // Clear canvas
         canvas.set_draw_color(pixels::Color::RGB(0, 0, 0));
         canvas.clear();
 

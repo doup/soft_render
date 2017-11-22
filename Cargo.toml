@@ -7,6 +7,7 @@ authors = ["doup <asier@illarra.com>"]
 cgmath = "0.15.0"
 image = "0.17.0"
 rand = "0.3"
+time = "0.1"
 wavefront_obj = "5.1.0"
 
 [dependencies.sdl2]
