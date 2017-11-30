@@ -9,7 +9,9 @@ mod model;
 mod triangle;
 
 use cgmath::SquareMatrix;
+use cgmath::PerspectiveFov;
 use cgmath::InnerSpace;
+use cgmath::Point3;
 use cgmath::Vector2;
 use cgmath::Vector3;
 
@@ -216,6 +218,9 @@ fn main() {
     let fps_weight = 0.1;
     let fps_print_time_interval = 2.0;
 
+    // Rotation
+    let mut rotation = 0.0;
+
     'main: loop {
         // FPS
         let now = time::precise_time_s();
@@ -236,14 +241,43 @@ fn main() {
         // Reset ZBuffer
         let mut zbuffer = [f64::NEG_INFINITY; SCREEN_BUFFER];
 
+        // rotation
+        rotation += 8.5;
+
+        if rotation > 360.0 {
+            rotation -= 360.0;
+        }
+
+        // MVP matrix
+        let perspective = PerspectiveFov {
+            fovy:   cgmath::Rad::from(cgmath::Deg(60.0)),
+            aspect: 1.0,
+            near:   0.1,
+            far:    100.0,
+        };
+
+        let model_matrix = cgmath::Matrix4::from_angle_y(cgmath::Deg(0.0 /*rotation*/)); 
+        let view_matrix = cgmath::Matrix4::look_at(Point3::new(0.0, 0.0, 2.5), Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 0.0));
+        let projection_matrix = cgmath::Matrix4::from(perspective);
+        let mvp = projection_matrix * view_matrix * model_matrix;
+
         for tri in model.iter() {
+            let tri_mvp = tri.vertices.iter().map(|vertex| {
+                Point3::from_homogeneous(mvp * vertex.to_homogeneous())
+            }).collect::<Vec<_>>();
+
+            let tri_mvp = Triangle {
+                vertices: [tri_mvp[0], tri_mvp[1], tri_mvp[2]],
+                uv: tri.uv,
+            };
+
             // Screen coordinates triangle
             let mut tri_screen = [Vector2::new(0.0, 0.0); 3];
 
             for i in 0..3 {
                 tri_screen[i] = Vector2::new(
-                    (tri.vertices[i].x + 1.0) * SCREEN_WIDTH as f64 / 2.0,
-                    (tri.vertices[i].y + 1.0) * SCREEN_HEIGHT as f64 / 2.0
+                    (tri_mvp.vertices[i].x + 1.0) * SCREEN_WIDTH as f64 / 2.0,
+                    (tri_mvp.vertices[i].y + 1.0) * SCREEN_HEIGHT as f64 / 2.0
                 );
             }
 

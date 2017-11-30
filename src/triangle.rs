@@ -1,9 +1,10 @@
 use cgmath::InnerSpace;
+use cgmath::Point3;
 use cgmath::Vector3;
 
 pub struct Triangle {
-    pub vertices: [Vector3<f64>; 3],
-    pub uv: [Vector3<f64>; 3],
+    pub vertices: [Point3<f64>; 3],
+    pub uv: [Point3<f64>; 3],
 }
 
 impl Triangle {
